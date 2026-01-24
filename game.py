@@ -1,7 +1,7 @@
 import pygame
 import sys
 from config import DEBUG
-
+from scripts.game_config import *
 
 class Game:
     def __init__(self, all_team_troops, all_team_names):
@@ -9,9 +9,9 @@ class Game:
         pygame.font.init()
         pygame.display.set_caption("Mini Militia Bot Arena")
 
-        self.screen = pygame.display.set_mode((1200, 700))
+        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         self.clock = pygame.time.Clock()
-        self.fps = 60
+        self.fps = FPS
 
         self.all_team_troops = all_team_troops
         self.all_team_names = all_team_names
@@ -30,13 +30,21 @@ class Game:
         self.players = []
 
         for team_idx, troops in enumerate(self.all_team_troops):
-            for troop in troops:
+            for troop_idx, troop in enumerate(troops):
+                # Distribute players across the map
+                x_pos = 100 + (team_idx * 200) + (troop_idx * 50)
+                y_pos = SCREEN_HEIGHT // 2
+                
                 # Placeholder player objects
                 self.players.append({
                     "team": team_idx,
                     "troop": troop,
-                    "x": 100 + 100 * team_idx,
-                    "y": 100
+                    "x": x_pos,
+                    "y": y_pos,
+                    "width": PLAYER_WIDTH,
+                    "height": PLAYER_HEIGHT,
+                    "vx": 0,
+                    "vy": 0
                 })
 
         if DEBUG:
@@ -49,10 +57,10 @@ class Game:
     def draw(self):
         self.screen.fill((25, 25, 25))
 
-        # Placeholder rendering
+        # Render players using team colors
         for p in self.players:
-            color = (200, 50 + 40*p["team"], 50)
-            pygame.draw.circle(self.screen, color, (p["x"], p["y"]), 10)
+            color = TEAM_COLORS[p["team"]]
+            pygame.draw.circle(self.screen, color, (int(p["x"]), int(p["y"])), PLAYER_WIDTH // 2)
 
         pygame.display.update()
 
