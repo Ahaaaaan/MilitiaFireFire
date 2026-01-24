@@ -1,5 +1,4 @@
 import time
-import pygame
 import math
 
 def spawn_bullet(x, y, angle, speed, damage):
