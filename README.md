@@ -12,8 +12,9 @@ Once the server has started, it will print the serer IP into the terminal, this 
 
 To start the game: `$ python game.py`
 
-W- jet
-A- left
-D- right
-space- shoot
-arrow keys- move aim
+* W- jet
+* A- left
+* D- right
+* space- shoot
+* arrow keys- move aim
+
