@@ -1,6 +1,6 @@
 # Developer Documentation
 
-*A comprehensive technical guide for developers working on PyTanks*
+*A comprehensive technical guide for developers working on Codewars engine*
 
 ---
 
@@ -1233,3 +1233,4 @@ This project is for educational purposes. See `LICENSE` file for details.
 For questions or suggestions, contact the development team or open an issue on the repository.
 
 **Happy Coding! 🎮🚀**
+
