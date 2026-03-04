@@ -350,7 +350,7 @@ GUN_SPAWN_POINTS = {
         # Right side spawns
         (700, 300, 5),   # Sniper
         (650, 450, 3),   # M14
-        (750, 150, 11),  # SMAW
+        (750, 150, 11),  # SAW
         
         # Additional spawns
         (300, 500, 6),   # Magnum
