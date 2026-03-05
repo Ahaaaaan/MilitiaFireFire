@@ -7,7 +7,7 @@ All game parameters in one place for easy tuning and balancing
 # NETWORK SETTINGS
 # =============================================================================
 SERVER_PORT = 5555
-SERVER_HOST = "10.51.19.103"  # Change to your server IP
+SERVER_HOST = "192.168.56.1"  # Change to your server IP
 
 # =============================================================================
 # MAP SETTINGS

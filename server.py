@@ -242,6 +242,99 @@ class Server:
                     if dist < radius:
                         return True
         return False
+
+    def _push_out_of_obstacle(self, x, y, radius, push_x=0.0, push_y=0.0):
+        """Try to move a grenade out of solid geometry using small radial offsets."""
+        if not self.is_colliding_with_obstacle(x, y, radius):
+            return x, y
+
+        directions = []
+        pref_len = np.hypot(push_x, push_y)
+        if pref_len > 1e-6:
+            directions.append((push_x / pref_len, push_y / pref_len))
+        directions.extend([
+            (1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0),
+            (0.707, 0.707), (0.707, -0.707), (-0.707, 0.707), (-0.707, -0.707)
+        ])
+
+        for distance in range(1, self.GRID_SIZE + 3):
+            for dx, dy in directions:
+                test_x = x + dx * distance
+                test_y = y + dy * distance
+                if not self.is_colliding_with_obstacle(test_x, test_y, radius):
+                    return test_x, test_y
+
+        return x, y
+
+    def _update_bouncy_grenade(self, grenade_slot, radius=4.0):
+        """Stepwise movement with bounce, rolling friction, and anti-stuck resolution."""
+        x = self.world_data[grenade_slot, 1]
+        y = self.world_data[grenade_slot, 2]
+        vx = self.world_data[grenade_slot, 4]
+        vy = self.world_data[grenade_slot, 5] + self.GRAVITY
+
+        wall_bounce = 0.15
+        floor_bounce = 0.15
+        roll_friction = 0.92
+
+        speed = max(abs(vx), abs(vy), 1.0)
+        steps = min(8, max(1, int(np.ceil(speed / 4.0))))
+        dx = vx / steps
+        dy = vy / steps
+
+        hit_horizontal = False
+        hit_vertical = False
+
+        for _ in range(steps):
+            next_x = x + dx
+            if self.is_colliding_with_obstacle(next_x, y, radius):
+                hit_horizontal = True
+                vx = -vx * wall_bounce
+                dx = vx / steps
+                x, y = self._push_out_of_obstacle(x, y, radius, push_x=np.sign(vx), push_y=0.0)
+            else:
+                x = next_x
+
+            next_y = y + dy
+            if self.is_colliding_with_obstacle(x, next_y, radius):
+                hit_vertical = True
+                falling = vy > 0.0
+                vy = -vy * (floor_bounce if falling else wall_bounce)
+                if falling:
+                    vx *= roll_friction
+                dy = vy / steps
+                x, y = self._push_out_of_obstacle(x, y, radius, push_x=0.0, push_y=-np.sign(vy if vy != 0 else 1.0))
+            else:
+                y = next_y
+
+        on_ground = self.is_colliding_with_obstacle(x, y + 1.5, radius)
+        if on_ground:
+            vx *= 0.97
+            if abs(vx) < 0.08:
+                vx = 0.0
+            if abs(vy) < 0.35:
+                vy = 0.0
+
+        if not hasattr(self, 'grenade_stuck_frames'):
+            self.grenade_stuck_frames = {}
+
+        if (hit_horizontal or hit_vertical) and abs(vx) < 0.12 and abs(vy) < 0.12 and self.is_colliding_with_obstacle(x, y, radius):
+            self.grenade_stuck_frames[grenade_slot] = self.grenade_stuck_frames.get(grenade_slot, 0) + 1
+        else:
+            self.grenade_stuck_frames[grenade_slot] = 0
+
+        if self.grenade_stuck_frames.get(grenade_slot, 0) > 3:
+            # Nudge upward and sideways so grenades never stay embedded in corners.
+            nudge = -1.0 if (grenade_slot % 2 == 0) else 1.0
+            x, y = self._push_out_of_obstacle(x + nudge * 1.5, y - 2.0, radius, push_x=nudge, push_y=-1.0)
+            vx = nudge * max(0.8, abs(vx) + 0.5)
+            vy = -1.6
+            self.grenade_stuck_frames[grenade_slot] = 0
+
+        self.world_data[grenade_slot, 1] = x
+        self.world_data[grenade_slot, 2] = y
+        self.world_data[grenade_slot, 4] = vx
+        self.world_data[grenade_slot, 5] = vy
     
     def find_ground_below(self, x, y):
         """Find the y-coordinate of the first obstacle below position (x, y)"""
@@ -352,55 +445,16 @@ class Server:
                 self.grenade_fuse_timers = {}
             for g in range(48, 55):
                 if self.world_data[g, 0] == 1:
-                    # generic physics common to all grenades
-                    self.world_data[g, 1] += self.world_data[g, 4]  # x += vx
-                    self.world_data[g, 2] += self.world_data[g, 5]  # y += vy
-                    self.world_data[g, 5] += self.GRAVITY          # gravity
-                    
                     grenade_type = int(self.world_data[g, 10])
-                    gx, gy = self.world_data[g, 1], self.world_data[g, 2]
                     blast_radius = self.world_data[g, 6]
                     damage = self.world_data[g, 7]
-
-                    # handle ground collision for all grenades
-                    ground_y = self.find_ground_below(gx, gy)
-                    if gy >= ground_y:
-                        self.world_data[g, 2] = ground_y
-                        self.world_data[g, 4] = 0
-                        self.world_data[g, 5] = 0
+                    self._update_bouncy_grenade(g, radius=4.0)
+                    gx, gy = self.world_data[g, 1], self.world_data[g, 2]
 
                     if grenade_type == 1:      # normal timed grenade with bounce physics
                         if g in self.grenade_fuse_timers:
                             self.grenade_fuse_timers[g] -= 1.0 / config.SERVER_FPS
-                        
-                        # Bounce physics - check wall collisions
-                        BOUNCE_DAMPING = 0.7  # Energy loss on bounce
-                        GROUND_FRICTION = 0.95  # Friction when rolling on ground
-                        
-                        # Check horizontal wall collision
-                        if self.is_colliding_with_obstacle(gx, gy, 4):
-                            # Reverse horizontal velocity and dampen
-                            self.world_data[g, 4] *= -BOUNCE_DAMPING
-                            # Push grenade out of obstacle
-                            self.world_data[g, 1] -= self.world_data[g, 4] * 2
-                        
-                        # Check if on ground
-                        on_ground = (gy >= ground_y - 2)
-                        if on_ground:
-                            # Apply ground friction to horizontal velocity
-                            self.world_data[g, 4] *= GROUND_FRICTION
-                            # If velocity very small, stop completely
-                            if abs(self.world_data[g, 4]) < 0.5:
-                                self.world_data[g, 4] = 0
-                        
-                        # Check vertical bounce (hitting ground from above)
-                        if self.world_data[g, 5] > 0 and on_ground:
-                            # Bounce up with dampening
-                            self.world_data[g, 5] *= -BOUNCE_DAMPING
-                            # If bounce is too weak, stop bouncing
-                            if abs(self.world_data[g, 5]) < 2:
-                                self.world_data[g, 5] = 0
-                        
+
                         if g in self.grenade_fuse_timers and self.grenade_fuse_timers[g] <= 0:
                             # explode
                             for t in range(8):
@@ -413,6 +467,8 @@ class Server:
                                             self.respawn(t, delay=0)
                             self.world_data[g, 0] = 0
                             del self.grenade_fuse_timers[g]
+                            if hasattr(self, 'grenade_stuck_frames'):
+                                self.grenade_stuck_frames.pop(g, None)
 
                     elif grenade_type == 2:  # proxy grenade – arms after delay then explodes on contact
                         # decrement whichever timer is active (arming or lifetime)
@@ -429,6 +485,8 @@ class Server:
                                 self.world_data[g, 0] = 0
                                 self.proxy_armed.discard(g)
                                 self.grenade_fuse_timers.pop(g, None)
+                                if hasattr(self, 'grenade_stuck_frames'):
+                                    self.grenade_stuck_frames.pop(g, None)
                             else:
                                 # check for player contact and detonate if seen
                                 detonated = False
@@ -450,6 +508,8 @@ class Server:
                                     self.world_data[g, 0] = 0
                                     self.proxy_armed.discard(g)
                                     self.grenade_fuse_timers.pop(g, None)
+                                    if hasattr(self, 'grenade_stuck_frames'):
+                                        self.grenade_stuck_frames.pop(g, None)
                         else:
                             # still in arming phase
                             if g in self.grenade_fuse_timers and self.grenade_fuse_timers[g] <= 0:
@@ -457,28 +517,6 @@ class Server:
                                 self.proxy_armed.add(g)
                                 self.grenade_fuse_timers[g] = 45.0
                     elif grenade_type == 3:  # gas grenade - creates persistent damage zone
-                        # Apply same bounce/rolling physics as frag grenade
-                        BOUNCE_DAMPING = 0.7
-                        GROUND_FRICTION = 0.95
-
-                        # Check horizontal wall collision
-                        if self.is_colliding_with_obstacle(gx, gy, 4):
-                            self.world_data[g, 4] *= -BOUNCE_DAMPING
-                            self.world_data[g, 1] -= self.world_data[g, 4] * 2
-
-                        # Check if on ground
-                        on_ground = (gy >= ground_y - 2)
-                        if on_ground:
-                            self.world_data[g, 4] *= GROUND_FRICTION
-                            if abs(self.world_data[g, 4]) < 0.5:
-                                self.world_data[g, 4] = 0
-
-                        # Check vertical bounce
-                        if self.world_data[g, 5] > 0 and on_ground:
-                            self.world_data[g, 5] *= -BOUNCE_DAMPING
-                            if abs(self.world_data[g, 5]) < 2:
-                                self.world_data[g, 5] = 0
-
                         if g in self.grenade_fuse_timers:
                             self.grenade_fuse_timers[g] -= 1.0 / config.SERVER_FPS
                             if self.grenade_fuse_timers[g] <= 0:
@@ -497,6 +535,8 @@ class Server:
                                 print(f"[SERVER] Gas effect created at ({gx:.1f}, {gy:.1f}) with radius {blast_radius}, damage {damage}/frame")
                                 self.world_data[g, 0] = 0
                                 del self.grenade_fuse_timers[g]
+                                if hasattr(self, 'grenade_stuck_frames'):
+                                    self.grenade_stuck_frames.pop(g, None)
             
             # --- Process active gas effects ---
             effects_to_remove = []
@@ -993,6 +1033,12 @@ class Server:
         # reset health on respawn
         if hasattr(self, 'MAX_HEALTH'):
             self.world_data[tank_index, 7] = self.MAX_HEALTH
+        # reset grenade selection and counts on respawn
+        if hasattr(self, 'grenade_data'):
+            self.grenade_data[tank_index, 0] = 1
+            self.grenade_data[tank_index, 1] = config.FRAG_GRENADE_COUNT
+            self.grenade_data[tank_index, 2] = config.PROXY_GRENADE_COUNT
+            self.grenade_data[tank_index, 3] = config.GAS_GREANADE_COUNT
 
     def add_players(self):
         while True:
