@@ -7,7 +7,7 @@ All game parameters in one place for easy tuning and balancing
 # NETWORK SETTINGS
 # =============================================================================
 SERVER_PORT = 5555
-SERVER_HOST = "192.168.56.1" # Change to your server IP
+SERVER_HOST = "127.0.1.1" # Change to your server IP
 
 # =============================================================================
 # MAP SETTINGS
@@ -51,11 +51,16 @@ ENABLE_KEYBOARD_PLAYER = True
 
 # List of bot script filenames (without .py)
 BOT_SCRIPTS = [
-    "random_bot",
-    "random_bot",
-    "random_bot",
-    "pro_bot",
-    "debug_bot"
+    #"random_bot",
+    #"random_bot",
+    #"random_bot",
+    #"pro_bot",
+    #"debug_bot",
+    "PAAV2",
+    "PAAV2",
+    "PAAV2",
+    "PAAV2",
+    "PAAV2"
 ]
 
 # If no keyboard player, first script bot renders
